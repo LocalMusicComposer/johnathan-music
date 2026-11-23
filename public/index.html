@@ -61,6 +61,7 @@ button.del{background:none;color:var(--bad);padding:4px 8px;min-height:0;font-si
   <input type="file" id="file" accept=".wav,.mp3,audio/wav,audio/mpeg" required>
   <button>Upload track</button>
 </form>
+<button class="ghost" id="logoutBtn" hidden>Log out</button>
 <div id="msg" role="status"></div>
 </main>
 <script>
@@ -90,8 +91,8 @@ async function render(){
     list.append(d);
   });
 }
-function showAdmin(){$('loginBtn').hidden=true;$('login').hidden=true;$('up').hidden=false}
-$('loginBtn').onclick=()=>{$('login').hidden=false;$('pw').focus()};
+function showAdmin(){$('loginBtn').hidden=true;$('login').hidden=true;$('up').hidden=false;$('logoutBtn').hidden=false}
+$('logoutBtn').onclick=()=>{try{sessionStorage.removeItem('pw')}catch{}pw='';location.reload()};$('loginBtn').onclick=()=>{$('login').hidden=false;$('pw').focus()};
 $('login').onsubmit=async e=>{e.preventDefault();pw=$('pw').value;
   const r=await fetch('/api/login',{method:'POST',headers:hdr()});
   if(r.ok){try{sessionStorage.setItem('pw',pw)}catch{}showAdmin();say('Logged in.','good');render()}
