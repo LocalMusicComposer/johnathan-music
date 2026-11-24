@@ -85,6 +85,7 @@ button.del{background:none;color:var(--bad);padding:4px 0;min-height:0;font-size
 footer{margin-top:56px}
 @media(max-width:480px){.two{grid-template-columns:1fr}.time{min-width:0}}
 @media(prefers-reduced-motion:reduce){.ring,.badge::before{animation:none}}
+<link rel="stylesheet" href="queue.css"><script src="queue.js" defer></script>
 </style></head><body>
 <canvas id="stars" aria-hidden="true"></canvas>
 <main>
@@ -121,6 +122,10 @@ footer{margin-top:56px}
     <button class="ghost" id="copyBtn">Copy</button>
   </div>
 </div>
+ <h2>QUEUE</h2>
+<div id="queue"></div>
+<h2>REQUEST A COMMISSION</h2>
+<div id="request"></div>
 <h2>STEP-BY-STEP PROCESS</h2>
 <ol class="steps panel">
   <li><div><strong>Contact me.</strong><p>Send a DM with the song type, theme, tempo, length, max budget and your basic idea. Say up front if it’s for commercial use.</p></div></li>
@@ -207,8 +212,7 @@ async function render(){
     list.append(d);
   });
 }
-function showAdmin(){$('loginBtn').hidden=true;$('login').hidden=true;$('up').hidden=false;$('logoutBtn').hidden=false}
-$('logoutBtn').onclick=()=>{try{sessionStorage.removeItem('pw')}catch{}pw='';location.reload()};
+function showAdmin(){$('loginBtn').hidden=true;$('login').hidden=true;$('up').hidden=false;$('logoutBtn').hidden=false;window.onAdmin&&onAdmin()}$('logoutBtn').onclick=()=>{try{sessionStorage.removeItem('pw')}catch{}pw='';location.reload()};
 $('loginBtn').onclick=()=>{$('login').hidden=false;$('pw').focus()};
 $('login').onsubmit=async e=>{e.preventDefault();pw=$('pw').value;
   const r=await fetch('/api/login',{method:'POST',headers:hdr()});
