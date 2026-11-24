@@ -2,13 +2,20 @@ const express = require('express'), multer = require('multer');
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 const app = express();
+app.set('trust proxy', 1);
+app.use(express.json({ limit: '20kb' }));
+
 const DATA = process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || path.join(__dirname, 'data');
 const FILES = path.join(DATA, 'tracks');
 const DB = path.join(DATA, 'tracks.json');
+const CJ = path.join(DATA, 'commissions.json');
+const SJ = path.join(DATA, 'settings.json');
 fs.mkdirSync(FILES, { recursive: true });
 
-const load = () => { try { return JSON.parse(fs.readFileSync(DB, 'utf8')); } catch { return []; } };
-const save = t => fs.writeFileSync(DB, JSON.stringify(t, null, 2));
+const rd = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
+const wr = (f, v) => fs.writeFileSync(f, JSON.stringify(v, null, 2));
+const load = () => rd(DB, []);
+const save = t => wr(DB, t);
 
 const auth = (req, res, next) => {
   const pass = process.env.ADMIN_PASSWORD;
@@ -30,6 +37,7 @@ const upload = multer({
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/files', express.static(FILES));
 
+/* ---------- tracks ---------- */
 app.get('/api/tracks', (req, res) => res.json(load()));
 app.post('/api/login', auth, (req, res) => res.json({ ok: true }));
 
@@ -53,6 +61,84 @@ app.delete('/api/tracks/:id', auth, (req, res) => {
   if (!t) return res.status(404).json({ error: 'Not found.' });
   fs.rm(path.join(FILES, t.file), { force: true }, () => {});
   save(tracks.filter(x => x.id !== t.id));
+  res.json({ ok: true });
+});
+
+/* ---------- commissions ---------- */
+const STATUSES = ['requested', 'awaiting_payment', 'in_progress', 'revisions', 'complete', 'declined'];
+const HIDDEN = ['requested', 'declined'];
+const short = n => { n = String(n || '').trim(); return n ? n[0].toUpperCase() + '***' : 'Anon'; };
+const clip = (v, n) => String(v || '').trim().slice(0, n);
+const isOpen = () => rd(SJ, { open: true }).open !== false;
+
+const hits = new Map();
+const limited = ip => {
+  const now = Date.now(), a = (hits.get(ip) || []).filter(t => now - t < 36e5);
+  a.push(now); hits.set(ip, a);
+  return a.length > 5;
+};
+
+async function notify(c) {
+  const key = process.env.RESEND_API_KEY, to = process.env.NOTIFY_EMAIL;
+  if (!key || !to) return;
+  const text = [
+    'Name: ' + c.name, 'Contact: ' + c.contact, 'Type: ' + c.type,
+    'Theme: ' + c.theme, 'Tempo: ' + c.tempo, 'Length: ' + c.length, 'Budget: ' + c.budget,
+    'Commercial: ' + (c.commercial ? 'yes' : 'no'), 'Rush: ' + (c.rush ? 'yes' : 'no'),
+    '', 'Idea:', c.idea
+  ].join('\n');
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'Commissions <onboarding@resend.dev>', to: [to],
+        subject: 'New ' + c.type + ' commission request from ' + c.name, text
+      })
+    });
+    if (!r.ok) console.error('Email failed', r.status, await r.text());
+  } catch (e) { console.error('Email error', e.message); }
+}
+
+app.get('/api/queue', (req, res) => {
+  const items = rd(CJ, []).filter(c => !HIDDEN.includes(c.status)).reverse()
+    .map(c => ({ id: c.id, who: short(c.name), type: c.type, status: c.status }));
+  res.json({ open: isOpen(), items });
+});
+
+app.post('/api/request', (req, res) => {
+  const b = req.body || {};
+  if (b.website) return res.json({ ok: true });
+  if (!isOpen()) return res.status(403).json({ error: 'Requests are closed right now.' });
+  if (limited(req.ip)) return res.status(429).json({ error: 'Too many requests. Try again later.' });
+  const c = {
+    id: crypto.randomUUID(), status: 'requested', created: new Date().toISOString(),
+    name: clip(b.name, 60), contact: clip(b.contact, 100), type: b.type === 'SFX' ? 'SFX' : 'Music',
+    theme: clip(b.theme, 100), tempo: clip(b.tempo, 40), length: clip(b.length, 40), budget: clip(b.budget, 40),
+    commercial: !!b.commercial, rush: !!b.rush, idea: clip(b.idea, 1500)
+  };
+  if (!c.name || !c.contact || !c.idea) return res.status(400).json({ error: 'Name, contact and idea are required.' });
+  const all = rd(CJ, []); all.unshift(c); wr(CJ, all);
+  notify(c);
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/commissions', auth, (req, res) => res.json({ open: isOpen(), items: rd(CJ, []) }));
+
+app.patch('/api/admin/commissions/:id', auth, (req, res) => {
+  const all = rd(CJ, []), c = all.find(x => x.id === req.params.id);
+  if (!c) return res.status(404).json({ error: 'Not found.' });
+  if (STATUSES.includes(req.body.status)) c.status = req.body.status;
+  wr(CJ, all); res.json(c);
+});
+
+app.delete('/api/admin/commissions/:id', auth, (req, res) => {
+  wr(CJ, rd(CJ, []).filter(x => x.id !== req.params.id));
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/settings', auth, (req, res) => {
+  wr(SJ, { open: !!req.body.open });
   res.json({ ok: true });
 });
 
